@@ -11,6 +11,7 @@ const network = require('./network');
 const stats = require('./stats');
 const processes = require('./processes');
 const { autoUpdater } = require('electron-updater');
+const ps = require('./ps');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -46,7 +47,8 @@ function setupUpdates() {
 function isAdmin() {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') return resolve(false);
-    execFile('net', ['session'], { windowsHide: true }, (err) => resolve(!err));
+    const sys32 = `${process.env.SystemRoot || 'C:\\Windows'}\\System32`;
+    execFile(`${sys32}\\net.exe`, ['session'], { windowsHide: true, cwd: sys32 }, (err) => resolve(!err));
   });
 }
 
@@ -96,7 +98,13 @@ async function maybeRestorePoint() {
 }
 
 function registerIpc() {
-  handle('app:info', async () => ({ version: app.getVersion(), admin: await isAdmin(), settings: store.settings }));
+  let healthCheck = null;
+  handle('app:info', async () => {
+    if (!healthCheck) healthCheck = ps.health();
+    const [admin, health] = await Promise.all([isAdmin(), healthCheck]);
+    if (!health.ok) healthCheck = null; // check again next time the window asks
+    return { version: app.getVersion(), admin, health, settings: store.settings };
+  });
   handle('app:setSetting', (key, value) => {
     if (key !== 'restorePointBeforeApply') throw new Error('Unknown setting.');
     store.setSetting(key, !!value);

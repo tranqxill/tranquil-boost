@@ -32,7 +32,7 @@ function nvidiaStats() {
   return new Promise((resolve) => {
     if (!NVSMI) return resolve(null);
     execFile(NVSMI, ['--query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'],
-      { windowsHide: true, timeout: 4000 }, (err, out) => {
+      { windowsHide: true, timeout: 4000, cwd: require('path').dirname(NVSMI) }, (err, out) => {
         if (err) return resolve(null);
         const [util, temp, used, total] = out.split('\n')[0].split(',').map((s) => Number(s.trim()));
         resolve({ util, temp, vramUsed: used, vramTotal: total });

@@ -358,3 +358,14 @@ button { font: inherit; color: inherit; }
 .update-box.ready { border-color: rgba(45, 212, 191, 0.4); background: var(--accent-soft); }
 .update-box .btn { margin-top: 4px; }
 .grow { flex: 1; min-width: 0; }
+
+.blocked-bar {
+  position: fixed; left: 244px; right: 20px; bottom: 20px; z-index: 40;
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px 16px; border-radius: 12px;
+  background: #2a1416; border: 1px solid rgba(248, 113, 113, 0.45); color: #fbd5d5;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45); font-size: 13px; line-height: 1.5;
+}
+.blocked-bar .ic { color: var(--danger); margin-top: 2px; }
+.blocked-bar b { display: block; color: #fff; margin-bottom: 2px; }
+.blocked-bar span { display: block; }

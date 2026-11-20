@@ -207,7 +207,7 @@ async function applyRecommended() {
     reportRestorePoint(r.restorePoint);
     r.done.forEach((d) => noteEffect(d.effect));
     if (r.failed.length) {
-      toast(`${r.done.length} turned on, ${r.failed.length} couldn't be: ${r.failed.map((f) => f.error).join(' ')}`, 'err', 8000);
+      toast(`${r.done.length} turned on, ${r.failed.length} couldn't be: ${[...new Set(r.failed.map((f) => f.error))].join(' ')}`, 'err', 8000);
     } else {
       toast(`Turned on ${r.done.length} tweak${r.done.length > 1 ? 's' : ''}.`);
     }
@@ -861,7 +861,7 @@ document.addEventListener('click', async (e) => {
       try {
         const r = await api.tweaks.undoAll();
         noteEffect('restart');
-        if (r.failed.length) toast(`Some couldn't be undone: ${r.failed.map((f) => f.error).join(' ')}`, 'err', 8000);
+        if (r.failed.length) toast(`Some couldn't be undone: ${[...new Set(r.failed.map((f) => f.error))].join(' ')}`, 'err', 8000);
         else toast('Everything is back to how it was.');
       } catch (err) { toast(cleanError(err), 'err'); }
       S.busy.clear();
@@ -904,6 +904,14 @@ document.addEventListener('focusout', (e) => {
   if (e.target.id === 'startup-search' && e.relatedTarget) S.startupFocus = false;
 });
 
+function showBlocked(h) {
+  const box = document.createElement('div');
+  box.className = 'blocked-bar';
+  box.innerHTML = `${icon('warn')}<div><b>Tranquil Boost can't change settings on this PC</b><span>${esc(h.message || 'PowerShell could not be started.')}</span>
+    ${h.detail ? `<span class="muted small">Details: ${esc(h.detail)}</span>` : ''}</div>`;
+  document.body.appendChild(box);
+}
+
 // ---------- boot ----------
 async function boot() {
   renderNav();
@@ -913,6 +921,7 @@ async function boot() {
   S.tweaks = tweaks;
   S.cleanupList = cl;
   cl.forEach((c) => { if (c.defaultOn) S.cleanupPick.add(c.id); });
+  if (info.health && !info.health.ok) showBlocked(info.health);
   $('#admin-pill').innerHTML = info.admin
     ? '<span class="pill ok"><span class="dot"></span>Running as admin</span>'
     : '<span class="pill warn"><span class="dot"></span>Not running as admin, so most tweaks won\'t work</span>';
