@@ -13,6 +13,8 @@ const cleanup = require('../src/main/cleanup');
 const startup = require('../src/main/startup');
 const network = require('../src/main/network');
 const stats = require('../src/main/stats');
+const processes = require('../src/main/processes');
+const { spawn } = require('child_process');
 
 if (process.platform !== 'win32' || !process.env.CI) {
   console.error('The self-test changes system settings. It only runs on a CI machine (Windows, CI=true).');
@@ -39,6 +41,14 @@ async function step(name, fn) {
   console.log('Tweaks');
   const before = await engine.status();
   for (const t of TWEAKS) {
+    if (before[t.id].state === 'unknown') {
+      console.log(`  skip ${t.id}: not available on this machine`);
+      await step(`${t.id}: refuses cleanly when not available`, async () => {
+        await assert.rejects(engine.apply(t.id));
+        assert.ok(!store.getBackup(t.id), 'left a backup behind');
+      });
+      continue;
+    }
     await step(`${t.id}: apply, check, undo, compare`, async () => {
       const raw0 = await engine.readRaw(t.id);
       await engine.apply(t.id);
@@ -53,7 +63,7 @@ async function step(name, fn) {
     });
   }
   await step('applyMany + undoAll', async () => {
-    const ids = TWEAKS.filter((t) => t.recommended).map((t) => t.id);
+    const ids = TWEAKS.filter((t) => t.recommended && before[t.id].state !== 'unknown').map((t) => t.id);
     for (const id of ids) await engine.apply(id).catch(() => {});
     const r = await engine.undoAll();
     assert.deepStrictEqual(r.failed, []);
@@ -84,6 +94,25 @@ async function step(name, fn) {
       const back = (await startup.scan()).find((y) => y.id === x.id);
       assert.strictEqual(back.enabled, was);
     }
+  });
+  await step('game booster: lists apps, closes a picked one, refuses protected ones', async () => {
+    const dummy = path.join(os.tmpdir(), 'tbdummyapp.exe');
+    fs.copyFileSync(path.join(process.env.SystemRoot, 'System32', 'PING.EXE'), dummy);
+    const child = spawn(dummy, ['-n', '600', '127.0.0.1'], { detached: true, stdio: 'ignore' });
+    child.unref();
+    await new Promise((r) => setTimeout(r, 1500));
+    const list = await processes.list();
+    console.log(`        ${list.length} apps, tiers: ${JSON.stringify(list.reduce((a, p) => { a[p.tier] = (a[p.tier] || 0) + 1; return a; }, {}))}`);
+    const d = list.find((p) => p.key === 'tbdummyapp');
+    assert.ok(d, 'dummy app not listed');
+    assert.strictEqual(d.tier, 'other');
+    assert.ok(list.filter((p) => p.key === 'explorer' || p.key === 'csrss').every((p) => p.tier === 'protected'), 'explorer/csrss not protected');
+    const bad = await processes.close(['explorer', 'csrss', 'svchost', 'lsass']);
+    assert.deepStrictEqual(bad.closed, [], 'closed a protected process!');
+    const r = await processes.close(['tbdummyapp']);
+    assert.deepStrictEqual(r.closed, ['tbdummyapp']);
+    await new Promise((res) => setTimeout(res, 800));
+    assert.ok(!(await processes.list()).some((p) => p.key === 'tbdummyapp'), 'dummy still running');
   });
   await step('dns state / set / restore', async () => {
     const s0 = await network.dnsState(store);

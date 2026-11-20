@@ -10,6 +10,21 @@ const CDM = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\ContentDeliver
 
 const reg = (path, name, data, type = 'DWord') => ({ path, name, data, type });
 
+// Service tweaks set the service's start type (2 automatic, 3 manual,
+// 4 disabled). Services that don't exist on a PC are skipped.
+function svc(id, title, desc, recommended, list) {
+  return {
+    id,
+    cat: 'services',
+    title,
+    desc,
+    recommended,
+    effect: 'restart',
+    requireKey: true,
+    values: list.map(([name, start]) => reg(`HKLM:\\SYSTEM\\CurrentControlSet\\Services\\${name}`, 'Start', start)),
+  };
+}
+
 const TWEAKS = [
   // ---------------- FPS & latency ----------------
   {
@@ -287,6 +302,200 @@ const TWEAKS = [
       reg('HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System', 'UploadUserActivities', 0),
     ],
   },
+
+  // ---------- more FPS & latency ----------
+  {
+    id: 'windowed-opt',
+    cat: 'fps',
+    title: 'Optimizations for windowed games',
+    desc: 'Lets borderless and windowed games skip a step Windows normally adds before drawing a frame. Lower input lag without needing exclusive fullscreen. Restart your game after turning it on.',
+    recommended: true,
+    effect: 'now',
+    values: [reg('HKCU:\\Software\\Microsoft\\DirectX\\UserGpuPreferences', 'DirectXUserGlobalSettings', 'SwapEffectUpgradeEnable=1;', 'String')],
+  },
+  {
+    id: 'usb-pcie-power',
+    cat: 'fps',
+    title: 'Turn off USB and PCIe power saving',
+    desc: 'Stops Windows putting USB ports and your graphics card\'s PCIe link to sleep to save power. Fixes mice and headsets cutting out and small stutters. Changes your current power plan only.',
+    recommended: true,
+    effect: 'now',
+    kind: 'script',
+    capture: `
+      $line = (powercfg /getactivescheme) | Out-String
+      if ($line -notmatch '([0-9a-fA-F-]{36})') { throw 'Could not read the active power plan.' }
+      $scheme = $Matches[1]
+      function Get-AC($sub, $set) {
+        $q = (cmd.exe /c "powercfg /q $scheme $sub $set 2>nul") | Out-String
+        # Works in any language: the last two 0x values are the AC and DC settings.
+        $m = [regex]::Matches($q, ':\\s*0x([0-9a-fA-F]{8})')
+        if ($m.Count -ge 2) { return [Convert]::ToInt32($m[$m.Count - 2].Groups[1].Value, 16) }
+        return $null
+      }
+      @{
+        scheme = $scheme
+        usb = (Get-AC '2a737441-1930-4402-8d77-b2bebba308a3' '48e6b7a6-50f5-4782-a5d4-53bb8f07e226')
+        pcie = (Get-AC '501a4d13-42af-4429-9fd1-a8218c268e20' 'ee12f906-d277-404b-b6da-e5fa1a576df5')
+      }
+    `,
+    apply: `
+      if ($null -eq $b.usb -and $null -eq $b.pcie) { throw 'This PC\\'s power plan doesn\\'t have these settings.' }
+      if ($null -ne $b.usb) { powercfg /setacvalueindex $b.scheme 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 | Out-Null }
+      if ($null -ne $b.pcie) { powercfg /setacvalueindex $b.scheme 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 0 | Out-Null }
+      powercfg /setactive $b.scheme | Out-Null
+    `,
+    restore: `
+      if ($null -ne $b.usb) { powercfg /setacvalueindex $b.scheme 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 $b.usb | Out-Null }
+      if ($null -ne $b.pcie) { powercfg /setacvalueindex $b.scheme 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 $b.pcie | Out-Null }
+      $line = (powercfg /getactivescheme) | Out-String
+      if ($line -match $b.scheme) { powercfg /setactive $b.scheme | Out-Null }
+    `,
+    check: `
+      $found = $false; $all = $true
+      foreach ($pair in @(@('2a737441-1930-4402-8d77-b2bebba308a3','48e6b7a6-50f5-4782-a5d4-53bb8f07e226'), @('501a4d13-42af-4429-9fd1-a8218c268e20','ee12f906-d277-404b-b6da-e5fa1a576df5'))) {
+        $q = (cmd.exe /c "powercfg /q SCHEME_CURRENT $($pair[0]) $($pair[1]) 2>nul") | Out-String
+        $m = [regex]::Matches($q, ':\\s*0x([0-9a-fA-F]{8})')
+        if ($m.Count -ge 2) { $found = $true; if ([Convert]::ToInt32($m[$m.Count - 2].Groups[1].Value, 16) -ne 0) { $all = $false } }
+      }
+      if (-not $found) { $null } else { [bool]$all }
+    `,
+  },
+  {
+    id: 'foreground-boost',
+    cat: 'fps',
+    title: 'Favor the app you\'re using',
+    desc: 'Gives the window in front (your game) shorter, more frequent turns on the CPU than background apps. A popular tweak with small but real gains on busy PCs.',
+    recommended: false,
+    effect: 'now',
+    values: [reg('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\PriorityControl', 'Win32PrioritySeparation', 38)],
+  },
+  {
+    id: 'timer-res',
+    cat: 'fps',
+    title: 'Keep high timer accuracy for games',
+    desc: 'On Windows 11, a game that asks for precise timing can lose it when its window isn\'t in focus. This keeps it on. Helps frame pacing in some games. Does nothing on Windows 10.',
+    recommended: false,
+    effect: 'restart',
+    values: [reg('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel', 'GlobalTimerResolutionRequests', 1)],
+  },
+  {
+    id: 'visual-effects',
+    cat: 'fps',
+    title: 'Lighter Windows animations',
+    desc: 'Turns off window animations, fades and shadows but keeps text smooth. Windows feels snappier and uses a little less GPU. Same as "Adjust for best performance" minus the ugly fonts.',
+    recommended: false,
+    effect: 'signout',
+    values: [
+      reg('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects', 'VisualFXSetting', 3),
+      reg('HKCU:\\Control Panel\\Desktop', 'UserPreferencesMask', [0x90, 0x12, 0x03, 0x80, 0x10, 0x00, 0x00, 0x00], 'Binary'),
+      reg('HKCU:\\Control Panel\\Desktop', 'FontSmoothing', '2', 'String'),
+      reg('HKCU:\\Control Panel\\Desktop\\WindowMetrics', 'MinAnimate', '0', 'String'),
+      reg('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced', 'TaskbarAnimations', 0),
+    ],
+  },
+
+  // ---------- more network ----------
+  {
+    id: 'delivery-opt',
+    cat: 'network',
+    title: 'Stop sharing updates with other PCs',
+    desc: 'By default Windows can upload update files to strangers\' PCs over the internet. This keeps your upload bandwidth for your games and calls. Updates still download normally.',
+    recommended: true,
+    effect: 'now',
+    values: [reg('HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DeliveryOptimization', 'DODownloadMode', 0)],
+  },
+
+  // ---------- quality of life ----------
+  {
+    id: 'sticky-keys',
+    cat: 'qol',
+    title: 'Stop Sticky Keys popups',
+    desc: 'No more Sticky Keys box popping up and tabbing you out of a game when you hit Shift five times. You can still turn Sticky Keys on in Settings if you use it.',
+    recommended: true,
+    effect: 'signout',
+    values: [
+      reg('HKCU:\\Control Panel\\Accessibility\\StickyKeys', 'Flags', '506', 'String'),
+      reg('HKCU:\\Control Panel\\Accessibility\\ToggleKeys', 'Flags', '58', 'String'),
+      reg('HKCU:\\Control Panel\\Accessibility\\Keyboard Response', 'Flags', '122', 'String'),
+    ],
+  },
+  {
+    id: 'menu-delay',
+    cat: 'qol',
+    title: 'Snappier menus',
+    desc: 'Menus that open on hover show up right away instead of after a short wait.',
+    recommended: false,
+    effect: 'signout',
+    values: [reg('HKCU:\\Control Panel\\Desktop', 'MenuShowDelay', '0', 'String')],
+  },
+  {
+    id: 'fast-startup',
+    cat: 'qol',
+    title: 'Turn off Fast Startup',
+    desc: 'Shutting down gives you a truly fresh start instead of a half-hibernated one. Fixes a lot of "it only works after a restart" problems. Booting can take a few seconds longer.',
+    recommended: false,
+    effect: 'restart',
+    values: [reg('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power', 'HiberbootEnabled', 0)],
+  },
+  {
+    id: 'shutdown-speed',
+    cat: 'qol',
+    title: 'Faster shutdown',
+    desc: 'Windows waits 2 seconds instead of 5 for stuck background services before shutting down.',
+    recommended: false,
+    effect: 'restart',
+    values: [reg('HKLM:\\SYSTEM\\CurrentControlSet\\Control', 'WaitToKillServiceTimeout', '2000', 'String')],
+  },
+
+  // ---------- more privacy ----------
+  {
+    id: 'feedback',
+    cat: 'privacy',
+    title: 'Stop feedback requests',
+    desc: 'Windows stops popping up asking you to rate it or give feedback.',
+    recommended: true,
+    effect: 'now',
+    values: [reg('HKCU:\\Software\\Microsoft\\Siuf\\Rules', 'NumberOfSIUFInPeriod', 0)],
+  },
+  {
+    id: 'lockscreen-ads',
+    cat: 'privacy',
+    title: 'Remove lock screen tips and ads',
+    desc: 'Gets rid of the "fun facts" and promos on the lock screen.',
+    recommended: true,
+    effect: 'signout',
+    values: [
+      reg(CDM, 'RotatingLockScreenOverlayEnabled', 0),
+      reg(CDM, 'SubscribedContent-338387Enabled', 0),
+    ],
+  },
+  {
+    id: 'app-tracking',
+    cat: 'privacy',
+    title: 'Stop tracking which apps you open',
+    desc: 'Windows stops keeping a list of the apps you launch to sort Start and search results.',
+    recommended: false,
+    effect: 'signout',
+    values: [reg('HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced', 'Start_TrackProgs', 0)],
+  },
+  {
+    id: 'recall',
+    cat: 'privacy',
+    title: 'Turn off Recall snapshots',
+    desc: 'Stops Windows Recall from saving snapshots of your screen. Only matters on Copilot+ PCs that have Recall.',
+    recommended: false,
+    effect: 'restart',
+    values: [reg('HKCU:\\Software\\Policies\\Microsoft\\Windows\\WindowsAI', 'DisableAIDataAnalysis', 1)],
+  },
+
+  // ---------- services ----------
+  svc('svc-telemetry', 'Turn off the telemetry service', 'Stops "Connected User Experiences and Telemetry", the service that sends usage data to Microsoft. Nothing you use depends on it.', true, [['DiagTrack', 4]]),
+  svc('svc-unused', 'Turn off services almost nobody uses', 'Fax, the store demo mode, and the offline maps updater. They sit in the background for nothing on a gaming PC.', true, [['Fax', 4], ['RetailDemo', 4], ['MapsBroker', 3]]),
+  svc('svc-wer', 'Turn off error reporting', 'Windows stops collecting and sending crash reports. Crashes still get logged on your PC.', false, [['WerSvc', 4]]),
+  svc('svc-print', 'I don\'t have a printer', 'Turns off the print service. Printing and "Print to PDF" stop working until you undo this.', false, [['Spooler', 4]]),
+  svc('svc-xbox', 'I don\'t use the Xbox app or Game Pass', 'Turns off Xbox sign-in and cloud save services. Don\'t use this if you play Game Pass or Microsoft Store games. Xbox controllers keep working.', false, [['XblAuthManager', 4], ['XblGameSave', 4], ['XboxNetApiSvc', 4]]),
+  svc('svc-sysmain', 'Turn off SysMain (SSD only)', 'SysMain preloads apps into memory. On an SSD that barely helps and it can cause disk spikes. Leave it on if Windows is on a hard drive.', false, [['SysMain', 4]]),
+  svc('svc-search', 'Turn off search indexing', 'Stops Windows constantly scanning your files for search. Frees up disk and CPU, but searching files in Start and Explorer gets slower.', false, [['WSearch', 4]]),
 ];
 
 const byId = new Map(TWEAKS.map((t) => [t.id, t]));

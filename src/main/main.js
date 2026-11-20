@@ -9,6 +9,7 @@ const cleanup = require('./cleanup');
 const startup = require('./startup');
 const network = require('./network');
 const stats = require('./stats');
+const processes = require('./processes');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -112,6 +113,11 @@ function registerIpc() {
   handle('net:dnsTest', () => network.dnsSpeedTest());
   handle('net:ping', () => network.pingTest());
   handle('net:flush', () => network.flushDns());
+
+  handle('proc:list', () => processes.list());
+  handle('proc:close', (keys) => processes.close(keys));
+  handle('proc:reopen', () => processes.reopen());
+  handle('proc:closed', () => processes.closedList());
 
   handle('stats:sample', () => stats.sample());
   handle('stats:info', () => stats.systemInfo());

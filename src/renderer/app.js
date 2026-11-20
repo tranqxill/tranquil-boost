@@ -26,14 +26,20 @@ const S = {
   live: null,
   hist: { cpu: [], gpu: [], ram: [] },
   needs: new Set(), // 'restart' | 'signout'
+  procs: null,
+  procPick: new Set(),
+  procBusy: false,
+  procClosed: [],
+  showOther: false,
 };
 
-const CATS = { fps: 'FPS & latency', network: 'Network', privacy: 'Privacy' };
+const CATS = { fps: 'FPS & latency', network: 'Network', qol: 'Quality of life', privacy: 'Privacy', services: 'Services' };
 const EFFECT = { now: 'Works right away', signout: 'After you sign out', restart: 'After a restart' };
 
 const PAGES = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'optimize', label: 'Optimize', icon: 'bolt' },
+  { id: 'booster', label: 'Game Booster', icon: 'gauge' },
   { id: 'network', label: 'Network & ping', icon: 'wifi' },
   { id: 'cleanup', label: 'Cleanup', icon: 'broom' },
   { id: 'startup', label: 'Startup apps', icon: 'rocket' },
@@ -127,6 +133,7 @@ function go(page) {
   if (page === 'cleanup' && !S.cleanupScan && !S.cleanupBusy) scanCleanup();
   if (page === 'startup' && !S.startup) loadStartup();
   if (page === 'network' && !S.dns) loadDns();
+  if (page === 'booster' && !S.procs && !S.procBusy) loadProcs(true);
 }
 
 // ---------- tweak actions ----------
@@ -208,7 +215,7 @@ function tweakCard(t) {
   else if (st.ours) label = 'On';
   else if (external) label = 'Already on';
   else if (st.state === 'partial') label = 'Partly on';
-  else if (st.state === 'unknown') label = 'Not available';
+  else if (st.state === 'unknown') label = 'Not on this PC';
   const toggleCls = [(on || st.ours) ? 'on' : '', st.state === 'partial' && !st.ours ? 'partial' : '', busy ? 'busy' : ''].join(' ');
   const lockTitle = external ? 'This was already set before Tranquil Boost, so there\'s nothing for it to undo.' : '';
   return `
@@ -300,13 +307,14 @@ const RENDER = {
       <div class="grid cols-3">
         <div class="card quick" data-goto="cleanup"><div class="q-ic">${icon('broom')}</div><div><b>Clean up junk</b><span>Temp files, old updates, crash dumps</span></div></div>
         <div class="card quick" data-goto="network"><div class="q-ic">${icon('wifi')}</div><div><b>Test your ping</b><span>And find the fastest DNS for you</span></div></div>
-        <div class="card quick" data-goto="startup"><div class="q-ic">${icon('rocket')}</div><div><b>Startup apps</b><span>Stop stuff from launching with Windows</span></div></div>
+        <div class="card quick" data-goto="booster"><div class="q-ic">${icon('gauge')}</div><div><b>Game Booster</b><span>Close background apps before you play</span></div></div>
       </div>`;
   },
 
   optimize() {
-    const tabs = [['all', 'All'], ['fps', CATS.fps], ['network', CATS.network], ['privacy', CATS.privacy]];
-    const list = S.tweaks.filter((t) => S.optTab === 'all' || t.cat === S.optTab);
+    const tabs = [['all', 'All'], ['rec', 'Recommended'], ...Object.entries(CATS)];
+    const list = S.tweaks.filter((t) => S.optTab === 'all' || (S.optTab === 'rec' ? t.recommended : t.cat === S.optTab));
+    const onN = list.filter((t) => (S.status[t.id] || {}).state === 'on').length;
     return `
       <div class="page-head">
         <div>
@@ -317,8 +325,68 @@ const RENDER = {
           <button class="btn primary" data-act="apply-rec" ${S.statusLoading || !recommendedLeft().length ? 'disabled' : ''}>${icon('bolt')} Apply recommended</button>
         </div>
       </div>
-      <div class="tabs">${tabs.map(([id, l]) => `<button class="tab ${S.optTab === id ? 'active' : ''}" data-tab="${id}">${l}</button>`).join('')}</div>
+      <div class="tabs">${tabs.map(([id, l]) => `<button class="tab ${S.optTab === id ? 'active' : ''}" data-tab="${id}">${l}</button>`).join('')}
+        <span class="muted small" style="margin-left:auto;align-self:center">${S.statusLoading ? '' : `${onN} of ${list.length} on`}</span></div>
+      ${S.optTab === 'services' ? `<div class="note" style="margin-bottom:14px">${icon('info')}<div>These change when a Windows service starts. They only touch optional services, never anything Windows needs to run. Each one takes effect after a restart.</div></div>` : ''}
       <div class="grid tweaks">${list.map(tweakCard).join('')}</div>`;
+  },
+
+  booster() {
+    const all = S.procs || [];
+    const safe = all.filter((p) => p.tier === 'safe');
+    const ask = all.filter((p) => p.tier === 'ask');
+    const other = all.filter((p) => p.tier === 'other');
+    const prot = all.filter((p) => p.tier === 'protected');
+    let pickMem = 0;
+    all.forEach((p) => { if (S.procPick.has(p.key)) pickMem += p.mem; });
+    const row = (p) => `
+      <div class="list-row">
+        <button class="check ${S.procPick.has(p.key) ? 'on' : ''}" data-ppick="${esc(p.key)}">${icon('check')}</button>
+        <div class="grow">
+          <b>${esc(p.label)}${p.count > 1 ? ` <span class="muted small">×${p.count}</span>` : ''}</b>
+          <div class="sub" title="${esc(p.why)}">${esc(p.why)}</div>
+        </div>
+        <div class="proc-num">${p.cpu}%<span>CPU</span></div>
+        <div class="proc-num">${bytes(p.mem)}<span>RAM</span></div>
+      </div>`;
+    const section = (title, list, note) => !list.length ? '' : `
+      <div class="section-title">${title}</div>
+      ${note ? `<div class="muted small" style="margin:-4px 0 10px">${note}</div>` : ''}
+      <div class="card flush"><div class="list">${list.map(row).join('')}</div></div>`;
+    return `
+      <div class="page-head">
+        <div>
+          <h1>Game Booster</h1>
+          <p>Close background apps you don't need while you play. Windows, your drivers, your antivirus and anti-cheat are never on this list.</p>
+        </div>
+        <div class="actions">
+          <button class="btn" data-act="proc-refresh" ${S.procBusy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
+          ${S.procClosed.length ? `<button class="btn" data-act="proc-reopen" ${S.procBusy ? 'disabled' : ''}>${icon('undo')} Reopen closed apps</button>` : ''}
+        </div>
+      </div>
+
+      <div class="card hero boost-hero">
+        <div class="q-ic big">${icon('gauge')}</div>
+        <div class="grow">
+          <h2>${!S.procs ? 'Looking at what\'s running…' : S.procPick.size ? `${S.procPick.size} app${S.procPick.size > 1 ? 's' : ''} picked` : 'Nothing picked'}</h2>
+          <p style="margin:0">${!S.procs ? 'This takes a second.' : S.procPick.size ? `Closing them frees about ${bytes(pickMem)} of RAM. Anything open in them, like unsaved work, will be lost.` : 'Tick the apps you want to close below.'}</p>
+        </div>
+        <button class="btn primary" data-act="proc-close" ${S.procBusy || !S.procPick.size ? 'disabled' : ''}>
+          ${S.procBusy && S.procs ? '<span class="spinner"></span>' : icon('bolt')} Close ${S.procPick.size || ''} app${S.procPick.size === 1 ? '' : 's'}
+        </button>
+      </div>
+
+      ${!S.procs ? '<div class="loading-row"><span class="spinner"></span>Reading running apps…</div>' : `
+        ${section('Safe to close', safe, 'Picked for you. None of these are needed to play games.')}
+        ${section('Close if you\'re not using them', ask, 'Not picked, because closing them does something you might notice.')}
+        ${!safe.length && !ask.length ? '<div class="card empty">Nothing from our list is running right now. Your PC is already pretty clean.</div>' : ''}
+        ${other.length ? `
+          <div class="section-title" style="display:flex;align-items:center;gap:10px">Everything else
+            <button class="btn small" data-act="proc-other">${S.showOther ? 'Hide' : `Show ${other.length}`}</button>
+          </div>
+          ${S.showOther ? `<div class="note warn" style="margin-bottom:10px">${icon('warn')}<div>These aren't on our list, so we can't tell you what closing them does. Only close one if you know what it is.</div></div>
+            <div class="card flush"><div class="list">${other.map(row).join('')}</div></div>` : ''}` : ''}
+        <div class="muted small" style="margin-top:18px">${prot.length} Windows, driver, security and anti-cheat processes are hidden and can't be closed from here.</div>`}`;
   },
 
   network() {
@@ -620,6 +688,44 @@ async function toggleStartup(id) {
   render();
 }
 
+async function loadProcs(pickDefaults) {
+  S.procBusy = true;
+  render();
+  try {
+    S.procs = await api.proc.list();
+    const keys = new Set(S.procs.map((p) => p.key));
+    [...S.procPick].forEach((k) => { if (!keys.has(k)) S.procPick.delete(k); });
+    if (pickDefaults) S.procs.forEach((p) => { if (p.tier === 'safe') S.procPick.add(p.key); });
+  } catch (e) {
+    S.procs = S.procs || [];
+    toast(`Couldn't read running apps: ${cleanError(e)}`, 'err');
+  }
+  S.procBusy = false;
+  render();
+}
+
+async function closeProcs() {
+  const keys = [...S.procPick];
+  const risky = (S.procs || []).filter((p) => S.procPick.has(p.key) && p.tier !== 'safe');
+  if (risky.length) {
+    const ok = await confirmBox(`Close ${keys.length} app${keys.length > 1 ? 's' : ''}?`,
+      `Heads up: ${risky.map((p) => p.label).join(', ')} ${risky.length > 1 ? 'are' : 'is'} picked. ${risky[0].why}`, 'Close them');
+    if (!ok) return;
+  }
+  S.procBusy = true;
+  render();
+  try {
+    const r = await api.proc.close(keys);
+    S.procClosed = await api.proc.closed();
+    toast(r.closed.length ? `Closed ${r.closed.length} app${r.closed.length > 1 ? 's' : ''} and freed about ${bytes(r.freed)} of RAM.` : 'Nothing was closed. Those apps may have already quit.', r.closed.length ? 'ok' : 'info');
+    S.procPick.clear();
+  } catch (e) {
+    toast(cleanError(e), 'err');
+  }
+  S.procBusy = false;
+  await loadProcs(false);
+}
+
 async function loadDns() {
   try { S.dns = await api.net.dns(); } catch (e) { toast(`Couldn't read DNS settings: ${cleanError(e)}`, 'err'); }
   render();
@@ -662,6 +768,11 @@ document.addEventListener('click', async (e) => {
   if (d.tweak) { toggleTweak(d.tweak); return; }
   if (d.undo) { toggleTweak(d.undo); return; }
   if (d.startup) { toggleStartup(d.startup); return; }
+  if (d.ppick) {
+    if (S.procPick.has(d.ppick)) S.procPick.delete(d.ppick); else S.procPick.add(d.ppick);
+    render();
+    return;
+  }
   if (d.pick) {
     if (S.cleanupPick.has(d.pick)) S.cleanupPick.delete(d.pick); else S.cleanupPick.add(d.pick);
     render();
@@ -686,6 +797,17 @@ document.addEventListener('click', async (e) => {
     case 'scan': scanCleanup(); break;
     case 'clean': runClean(); break;
     case 'startup-refresh': loadStartup(); break;
+    case 'proc-refresh': loadProcs(false); break;
+    case 'proc-close': closeProcs(); break;
+    case 'proc-other': S.showOther = !S.showOther; render(); break;
+    case 'proc-reopen': {
+      S.procBusy = true;
+      render();
+      try { const r = await api.proc.reopen(); S.procClosed = []; toast(`Reopening ${r.reopened} app${r.reopened === 1 ? '' : 's'}.`); } catch (err) { toast(cleanError(err), 'err'); }
+      S.procBusy = false;
+      setTimeout(() => loadProcs(false), 2500);
+      break;
+    }
     case 'ping': netAction('ping', async () => { S.ping = await api.net.ping(); }); break;
     case 'flush': netAction('flush', async () => { await api.net.flush(); toast('DNS cache cleared.'); }); break;
     case 'dnstest': netAction('dnstest', async () => { S.dnsTest = await api.net.dnsTest(); }); break;

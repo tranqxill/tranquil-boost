@@ -83,9 +83,13 @@ class Engine {
         if (c === true) state = 'on';
         else if (c === false) state = 'off';
       } else {
-        const hits = t.values.map((v, i) => sameValue(v, res.vals[`${t.id}#${i}`]));
-        const n = hits.filter(Boolean).length;
-        state = n === hits.length ? 'on' : n === 0 ? 'off' : 'partial';
+        let vals = t.values.map((v, i) => [v, res.vals[`${t.id}#${i}`]]);
+        // Service tweaks only count services that exist on this PC.
+        if (t.requireKey) vals = vals.filter(([, got]) => got && got.keyExists);
+        if (vals.length) {
+          const n = vals.filter(([v, got]) => sameValue(v, got)).length;
+          state = n === vals.length ? 'on' : n === 0 ? 'off' : 'partial';
+        }
       }
       out[t.id] = { state, ours: !!this.store.getBackup(t.id) };
     }
@@ -121,16 +125,25 @@ class Engine {
       `);
       this.store.setBackup(id, { kind: 'reg', at: Date.now(), originals: toArray(originals) });
     }
+    const backup = this.store.getBackup(id);
+    if (t.requireKey && !backup.originals.some((o) => o && o.keyExists)) {
+      this.store.clearBackup(id);
+      throw new Error('This isn\'t available on your PC.');
+    }
     const writes = t.values.map((v) => ({
       path: v.path,
       name: v.name,
       kind: v.type,
       data: v.type === 'DWord' ? (u32(v.data) | 0) : v.data,
+      requireKey: !!t.requireKey,
     }));
     try {
       await ps.run(`
         ${REG_FUNCS}
-        foreach ($w in ${ps.jsonArg(writes)}) { Write-Val $w.path $w.name $w.kind $w.data }
+        foreach ($w in ${ps.jsonArg(writes)}) {
+          if ($w.requireKey -and -not (Test-Path -LiteralPath $w.path)) { continue }
+          Write-Val $w.path $w.name $w.kind $w.data
+        }
       `);
     } catch (e) {
       await this.undo(id).catch(() => {});

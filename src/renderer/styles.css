@@ -340,3 +340,11 @@ button { font: inherit; color: inherit; }
 .ping-row { display: flex; align-items: flex-end; gap: 28px; margin: 14px 0 16px; }
 .btn-row { display: flex; gap: 10px; }
 .body-text { line-height: 1.6; margin: 12px 0 14px; font-size: 13px; }
+
+.boost-hero { gap: 20px; padding: 20px 22px; }
+.boost-hero h2 { margin: 0 0 4px; font-size: 18px; }
+.q-ic.big { width: 52px; height: 52px; border-radius: 14px; }
+.q-ic.big .ic { width: 26px; height: 26px; }
+.proc-num { width: 78px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.proc-num span { display: block; font-size: 11px; color: var(--dim); font-weight: 500; }
+.boost-hero .grow { flex: 1; }

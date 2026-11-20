@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('boost', {
     ping: call('net:ping'),
     flush: call('net:flush'),
   },
+  proc: { list: call('proc:list'), close: call('proc:close'), reopen: call('proc:reopen'), closed: call('proc:closed') },
   stats: { sample: call('stats:sample'), info: call('stats:info') },
   win: {
     minimize: call('win:minimize'),

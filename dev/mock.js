@@ -69,6 +69,23 @@
       ping: async () => { await wait(1200); return [{ host: '1.1.1.1', avg: 14, jitter: 1.8, loss: 0 }, { host: '8.8.8.8', avg: 18, jitter: 2.4, loss: 0 }]; },
       flush: async () => ({ ok: true }),
     },
+    proc: {
+      list: async () => { await wait(500); return [
+        { key: 'chrome', label: 'Google Chrome', exe: 'chrome', count: 23, mem: 2.9e9, cpu: 4.1, tier: 'ask', why: 'Closes every tab in this browser.' },
+        { key: 'discord', label: 'Discord', exe: 'Discord', count: 6, mem: 7.1e8, cpu: 0.8, tier: 'ask', why: 'You\'ll drop out of any voice call.' },
+        { key: 'medal', label: 'Medal', exe: 'Medal', count: 3, mem: 5.2e8, cpu: 1.6, tier: 'ask', why: 'Clips won\'t record until you open it again.' },
+        { key: 'onedrive', label: 'OneDrive', exe: 'OneDrive', count: 1, mem: 1.4e8, cpu: 0.2, tier: 'safe', why: 'Stops syncing until you open it again.' },
+        { key: 'epicgameslauncher', label: 'Epic Games Launcher', exe: 'EpicGamesLauncher', count: 2, mem: 3.1e8, cpu: 0.4, tier: 'safe', why: 'Only needed while you\'re playing an Epic game.' },
+        { key: 'widgets', label: 'Widgets', exe: 'Widgets', count: 2, mem: 1.1e8, cpu: 0, tier: 'safe', why: 'The widgets panel reloads next time you open it.' },
+        { key: 'phoneexperiencehost', label: 'Phone Link', exe: 'PhoneExperienceHost', count: 1, mem: 9.0e7, cpu: 0, tier: 'safe', why: 'Phone notifications stop showing on your PC.' },
+        { key: 'spotify', label: 'Spotify', exe: 'Spotify', count: 5, mem: 4.0e8, cpu: 0.6, tier: 'ask', why: 'Your music stops.' },
+        { key: 'someapp', label: 'Some App', exe: 'someapp', count: 1, mem: 6.0e7, cpu: 0, tier: 'other', why: 'Not on our list. Only close it if you know what it is.' },
+        { key: 'explorer', label: 'Windows Explorer', exe: 'explorer', count: 1, mem: 1.9e8, cpu: 0.3, tier: 'protected', why: '' },
+      ]; },
+      close: async (keys) => { await wait(800); return { closed: keys, freed: 6.5e8 }; },
+      reopen: async () => ({ reopened: 2 }),
+      closed: async () => ['onedrive'],
+    },
     stats: {
       sample: async () => { cpu = Math.max(4, Math.min(95, cpu + (Math.random() - 0.5) * 18)); return { cpu: Math.round(cpu), ramUsed: 13.6e9, ramTotal: 34.2e9, gpu: { util: Math.round(30 + Math.random() * 40), temp: 61, vramUsed: 5200, vramTotal: 12288 }, uptime: 200000 }; },
       info: async () => ({ cpu: 'AMD Ryzen 7 7800X3D 8-Core Processor', threads: 16, ram: 34.2e9, os: 'Microsoft Windows 11 Home', build: '26100', gpus: ['NVIDIA GeForce RTX 4070'], diskFree: 412e9, diskUsed: 588e9 }),

@@ -33,7 +33,7 @@ const assert = (c, m) => { if (!c) throw new Error(m); };
 
   await step('window opens and shows the sidebar', async () => {
     await page.waitForSelector('.nav-item', { timeout: 30000 });
-    assert((await page.locator('.nav-item').count()) === 7, 'expected 7 sidebar items');
+    assert((await page.locator('.nav-item').count()) === 8, 'expected 8 sidebar items');
   });
 
   await step('knows it is running as admin', async () => {
@@ -68,8 +68,9 @@ const assert = (c, m) => { if (!c) throw new Error(m); };
     await page.waitForFunction(() => ![...document.querySelectorAll('.tweak-foot .state')].some((s) => s.textContent.includes('Checking')), null, { timeout: 60000 });
     const states = await page.$$eval('.tweak', (els) => els.map((e) => `${e.querySelector('h3').textContent} = ${e.querySelector('.state').textContent}`));
     console.log(`        ${states.join(' | ')}`);
-    assert(states.length === 18, `expected 18 tweaks, saw ${states.length}`);
-    assert(!states.some((s) => s.endsWith('Not available')), 'some tweaks show Not available');
+    const want = require('../src/main/tweaks').TWEAKS.length;
+    assert(states.length === want, `expected ${want} tweaks, saw ${states.length}`);
+    assert(!states.some((s) => s.endsWith('Checking…') || s.endsWith('Working…')), 'some tweaks stuck loading');
     await shot('2-optimize');
   });
 
@@ -110,6 +111,15 @@ const assert = (c, m) => { if (!c) throw new Error(m); };
     await page.click('[data-act="ping"]');
     await page.waitForFunction(() => !document.querySelector('[data-act="ping"]').disabled, null, { timeout: 60000 });
     await shot('4-network');
+  });
+
+  await go('booster');
+  await step('game booster lists running apps and hides system ones', async () => {
+    await page.waitForFunction(() => !document.querySelector('.loading-row'), null, { timeout: 60000 });
+    const txt = await page.textContent('#page');
+    assert(/processes are hidden and can't be closed/.test(txt), 'missing protected note');
+    console.log(`        ${txt.match(/\d+ Windows, driver/)[0]} ... picked: ${await page.textContent('.boost-hero h2')}`);
+    await shot('4b-booster');
   });
 
   await go('cleanup');
