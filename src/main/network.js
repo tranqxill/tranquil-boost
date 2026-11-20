@@ -33,13 +33,18 @@ async function dnsState(store) {
     }
     ,$out
   `);
-  const adapters = Array.isArray(res) ? res : res ? [res] : [];
+  const adapters = (Array.isArray(res) ? res : res ? [res] : []).map((a) => ({
+    ...a,
+    servers: [].concat(a.servers || []),
+    static: [].concat(a.static || []),
+  }));
   let current = 'custom';
   const allStatic = adapters.every((a) => !a.static || a.static.length === 0);
   if (adapters.length && allStatic) current = 'auto';
   for (const p of DNS_PRESETS) {
-    if (p.id === 'auto') continue;
-    if (adapters.length && adapters.every((a) => a.static && a.static.length && a.static.every((s) => p.servers.includes(s)))) current = p.id;
+    if (p.id === 'auto' || !adapters.length) continue;
+    const matches = (list) => list && list.length && list.every((s) => p.servers.includes(s));
+    if (adapters.every((a) => matches(a.static) || matches(a.servers))) current = p.id;
   }
   return { presets: DNS_PRESETS, current, adapters, hasBackup: !!store.data.dnsBackup };
 }

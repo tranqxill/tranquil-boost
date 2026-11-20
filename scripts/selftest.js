@@ -75,12 +75,14 @@ async function step(name, fn) {
     console.log(`        ${list.length} startup items`);
     if (list.length) {
       const x = list[0];
+      const was = x.enabled;
       console.log('       ', JSON.stringify(list.map((y) => ({ id: y.id, on: y.enabled }))));
-      await startup.setEnabled(x.id, !x.enabled);
+      await startup.setEnabled(x.id, !was);
       const again = (await startup.scan()).find((y) => y.id === x.id);
-      if (again.enabled === x.enabled) console.log('        after toggle:', JSON.stringify(again), JSON.stringify(await startup.debugApproved(x.id)));
-      assert.strictEqual(again.enabled, !x.enabled);
-      await startup.setEnabled(x.id, x.enabled);
+      assert.strictEqual(again.enabled, !was);
+      await startup.setEnabled(x.id, was);
+      const back = (await startup.scan()).find((y) => y.id === x.id);
+      assert.strictEqual(back.enabled, was);
     }
   });
   await step('dns state / set / restore', async () => {
@@ -89,6 +91,7 @@ async function step(name, fn) {
     if (!s0.adapters.length) return;
     await network.setDns(store, 'cloudflare');
     const s1 = await network.dnsState(store);
+    console.log('        after set:', JSON.stringify(s1.adapters));
     assert.strictEqual(s1.current, 'cloudflare');
     await network.restoreDns(store);
     const s2 = await network.dnsState(store);
