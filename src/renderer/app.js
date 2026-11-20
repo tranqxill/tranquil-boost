@@ -31,6 +31,7 @@ const S = {
   procBusy: false,
   procClosed: [],
   showOther: false,
+  update: { state: 'idle' },
 };
 
 const CATS = { fps: 'FPS & latency', network: 'Network', qol: 'Quality of life', privacy: 'Privacy', services: 'Services' };
@@ -122,7 +123,21 @@ function renderNav() {
       ${p.id === 'backups' && ours ? `<span class="nav-count">${ours}</span>` : ''}
     </button>`).join('') + `
     <div class="nav-spacer"></div>
+    ${updateBox()}
     <div class="nav-foot">Tranquil Boost ${esc(S.info ? `v${S.info.version}` : '')}<br>Tranquil Interactive Co.</div>`;
+}
+
+function updateBox() {
+  const u = S.update || {};
+  if (u.state === 'ready') {
+    return `<div class="update-box ready"><b>Update ready</b><span>Version ${esc(u.version)} is downloaded.</span>
+      <button class="btn primary small" data-act="update-install">Restart and update</button></div>`;
+  }
+  if (u.state === 'downloading') {
+    return `<div class="update-box"><b>Downloading ${esc(u.version || 'update')}</b>
+      <div class="meter"><i style="width:${u.percent || 0}%"></i></div></div>`;
+  }
+  return '';
 }
 
 function go(page) {
@@ -608,9 +623,33 @@ const RENDER = {
             <button class="toggle ${rpOn ? 'on' : ''}" data-act="rp-setting"></button>
           </div>
         </div>
+      </div>
+
+      <div class="section-title">Updates</div>
+      <div class="card" style="display:flex;align-items:center;gap:16px">
+        <div class="grow">
+          <b>Tranquil Boost ${esc(S.info ? `v${S.info.version}` : '')}</b>
+          <div class="muted small" style="margin-top:3px">${updateText()}</div>
+        </div>
+        ${S.update.state === 'ready'
+          ? '<button class="btn primary" data-act="update-install">Restart and update</button>'
+          : `<button class="btn" data-act="update-check" ${['checking', 'downloading', 'dev'].includes(S.update.state) ? 'disabled' : ''}>${icon('refresh')} Check for updates</button>`}
       </div>`;
   },
 };
+
+function updateText() {
+  const u = S.update || {};
+  switch (u.state) {
+    case 'checking': return 'Checking for updates…';
+    case 'downloading': return `Downloading version ${esc(u.version || '')} (${u.percent || 0}%)…`;
+    case 'ready': return `Version ${esc(u.version)} is ready. Restart the app to finish updating.`;
+    case 'none': return 'You\'re on the latest version. Updates download by themselves when they come out.';
+    case 'error': return 'Couldn\'t check for updates right now. It\'ll try again later.';
+    case 'dev': return 'Updates are off in this test build.';
+    default: return 'Updates download by themselves when they come out.';
+  }
+}
 
 function render() {
   const fn = RENDER[S.page];
@@ -838,6 +877,12 @@ document.addEventListener('click', async (e) => {
       });
       break;
     case 'rp-open': api.openRestore(); break;
+    case 'update-check': S.update = await api.update.check(); renderNav(); render(); break;
+    case 'update-install': {
+      const ok = await confirmBox('Restart and update?', 'Tranquil Boost will close, install the new version, and open again. Your undo backups are kept.', 'Restart and update');
+      if (ok) api.update.install();
+      break;
+    }
     case 'rp-setting': {
       const cur = !!(S.info.settings && S.info.settings.restorePointBeforeApply);
       S.info.settings = await api.setSetting('restorePointBeforeApply', !cur);
@@ -871,6 +916,14 @@ async function boot() {
   $('#admin-pill').innerHTML = info.admin
     ? '<span class="pill ok"><span class="dot"></span>Running as admin</span>'
     : '<span class="pill warn"><span class="dot"></span>Not running as admin, so most tweaks won\'t work</span>';
+  S.update = await api.update.get();
+  api.update.onStatus((u) => {
+    const wasReady = S.update.state === 'ready';
+    S.update = u;
+    renderNav();
+    if (S.page === 'backups') render();
+    if (u.state === 'ready' && !wasReady) toast(`Version ${u.version} is ready. Restart the app to update.`, 'info', 8000);
+  });
   renderNav();
   render();
   api.stats.info().then((s) => { S.sys = s; render(); }).catch(() => {});

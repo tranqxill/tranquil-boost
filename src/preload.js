@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('boost', {
   },
   proc: { list: call('proc:list'), close: call('proc:close'), reopen: call('proc:reopen'), closed: call('proc:closed') },
   stats: { sample: call('stats:sample'), info: call('stats:info') },
+  update: {
+    get: call('update:get'),
+    check: call('update:check'),
+    install: call('update:install'),
+    onStatus: (cb) => ipcRenderer.on('update:status', (_e, v) => cb(v)),
+  },
   win: {
     minimize: call('win:minimize'),
     maximize: call('win:maximize'),

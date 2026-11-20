@@ -10,6 +10,7 @@ const startup = require('./startup');
 const network = require('./network');
 const stats = require('./stats');
 const processes = require('./processes');
+const { autoUpdater } = require('electron-updater');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -19,6 +20,28 @@ let win = null;
 let store = null;
 let engine = null;
 let restorePointTried = false;
+let update = { state: 'idle' }; // idle | checking | downloading | ready | none | error | dev
+
+function setUpdate(u) {
+  update = u;
+  if (win && !win.isDestroyed()) win.webContents.send('update:status', update);
+}
+
+// Checks GitHub Releases for a newer version and downloads it in the background.
+function setupUpdates() {
+  if (!app.isPackaged) { update = { state: 'dev' }; return; }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => setUpdate({ state: 'checking' }));
+  autoUpdater.on('update-available', (i) => setUpdate({ state: 'downloading', version: i.version, percent: 0 }));
+  autoUpdater.on('download-progress', (p) => setUpdate({ ...update, state: 'downloading', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (i) => setUpdate({ state: 'ready', version: i.version }));
+  autoUpdater.on('update-not-available', () => setUpdate({ state: 'none' }));
+  autoUpdater.on('error', (e) => setUpdate({ state: 'error', message: String((e && e.message) || e).split('\n')[0] }));
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 5000);
+  setInterval(check, 4 * 60 * 60 * 1000);
+}
 
 function isAdmin() {
   return new Promise((resolve) => {
@@ -122,6 +145,16 @@ function registerIpc() {
   handle('stats:sample', () => stats.sample());
   handle('stats:info', () => stats.systemInfo());
 
+  handle('update:get', () => update);
+  handle('update:check', async () => {
+    if (!app.isPackaged) return update;
+    try { await autoUpdater.checkForUpdates(); } catch (e) { setUpdate({ state: 'error', message: e.message }); }
+    return update;
+  });
+  handle('update:install', () => {
+    if (update.state === 'ready') setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  });
+
   handle('win:minimize', () => win.minimize());
   handle('win:maximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
   handle('win:close', () => win.close());
@@ -139,6 +172,7 @@ app.whenReady().then(() => {
   engine = new Engine(store);
   registerIpc();
   createWindow();
+  setupUpdates();
 });
 
 app.on('second-instance', () => {

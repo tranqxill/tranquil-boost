@@ -51,6 +51,16 @@
       "shortcutName": "Tranquil Boost",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tranqxill",
+        "repo": "tranquil-boost"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

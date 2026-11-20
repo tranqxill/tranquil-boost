@@ -90,6 +90,7 @@
       sample: async () => { cpu = Math.max(4, Math.min(95, cpu + (Math.random() - 0.5) * 18)); return { cpu: Math.round(cpu), ramUsed: 13.6e9, ramTotal: 34.2e9, gpu: { util: Math.round(30 + Math.random() * 40), temp: 61, vramUsed: 5200, vramTotal: 12288 }, uptime: 200000 }; },
       info: async () => ({ cpu: 'AMD Ryzen 7 7800X3D 8-Core Processor', threads: 16, ram: 34.2e9, os: 'Microsoft Windows 11 Home', build: '26100', gpus: ['NVIDIA GeForce RTX 4070'], diskFree: 412e9, diskUsed: 588e9 }),
     },
+    update: { get: async () => ({ state: 'ready', version: '0.1.1' }), check: async () => ({ state: 'none' }), install: async () => {}, onStatus() {} },
     win: { minimize() {}, maximize() {}, close() {}, onMaximized() {} },
   };
 })();

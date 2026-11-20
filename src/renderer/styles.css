@@ -348,3 +348,13 @@ button { font: inherit; color: inherit; }
 .proc-num { width: 78px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13.5px; }
 .proc-num span { display: block; font-size: 11px; color: var(--dim); font-weight: 500; }
 .boost-hero .grow { flex: 1; }
+
+.update-box {
+  margin: 0 4px 8px; padding: 12px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px; font-size: 12.5px;
+}
+.update-box span { color: var(--muted); }
+.update-box.ready { border-color: rgba(45, 212, 191, 0.4); background: var(--accent-soft); }
+.update-box .btn { margin-top: 4px; }
+.grow { flex: 1; min-width: 0; }
