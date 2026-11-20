@@ -80,6 +80,14 @@ async function health() {
   }
 }
 
+// Pass data into a script without any quoting problems. Arrays come out
+// enumerated (Windows PowerShell 5.1 otherwise hands back one nested array),
+// so wrap the result in @() wherever a list is expected.
+function jsonArg(value) {
+  const b64 = Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
+  return `$([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')) | ConvertFrom-Json | ForEach-Object { $_ })`;
+}
+
 async function runJson(script, opts) {
   const out = await run(`$__r = & {\n${script}\n}\nConvertTo-Json -InputObject $__r -Depth 6 -Compress`, opts);
   if (!out) return null;
