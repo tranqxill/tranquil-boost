@@ -89,11 +89,24 @@ async function setEnabled(id, enabled) {
     $o = ${ps.jsonArg({ path: src.approved, name: item.name, enabled: !!enabled })}
     if (-not (Test-Path -LiteralPath $o.path)) { New-Item -Path $o.path -Force | Out-Null }
     if ($o.enabled) { $bytes = [byte[]](2,0,0,0,0,0,0,0,0,0,0,0) }
-    else { $bytes = [byte[]](@(3,0,0,0) + [BitConverter]::GetBytes([long](Get-Date).ToFileTime())) }
+    else { $bytes = [byte[]](@(3,0,0,0) + [BitConverter]::GetBytes([long]((Get-Date).ToFileTime()))) }
     New-ItemProperty -LiteralPath $o.path -Name $o.name -PropertyType Binary -Value $bytes -Force | Out-Null
   `);
   item.enabled = !!enabled;
   return { ok: true };
 }
 
-module.exports = { scan, setEnabled };
+// Raw StartupApproved bytes for one item (used by the self-test).
+async function debugApproved(id) {
+  const item = lastScan.get(id);
+  if (!item) return null;
+  const src = sourceByKey.get(item.source);
+  return ps.runJson(`
+    $o = ${ps.jsonArg({ path: src.approved, name: item.name })}
+    if (-not (Test-Path -LiteralPath $o.path)) { return @{ key = $false } }
+    $k = Get-Item -LiteralPath $o.path
+    @{ key = $true; path = $o.path; names = @($k.GetValueNames()); value = @($k.GetValue($o.name) | ForEach-Object { [int]$_ }) }
+  `);
+}
+
+module.exports = { scan, setEnabled, debugApproved };

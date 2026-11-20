@@ -11,7 +11,8 @@ const presetById = new Map(DNS_PRESETS.map((p) => [p.id, p]));
 
 const ADAPTERS = `
 function Get-ActiveAdapters {
-  @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })
+  $dns = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $_.InterfaceIndex })
+  @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' -and $dns -contains $_.ifIndex })
 }
 function Get-StaticDns($guid) {
   $v4 = (Get-ItemProperty -LiteralPath "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$guid" -ErrorAction SilentlyContinue).NameServer
@@ -59,16 +60,22 @@ async function setDns(store, presetId) {
   }
 
   await ps.run(`
+    ${ADAPTERS}
     $servers = @(${ps.jsonArg(preset.servers)})
     $hasV6 = [bool](Get-NetAdapterBinding -ComponentID ms_tcpip6 -ErrorAction SilentlyContinue | Where-Object Enabled)
-    foreach ($a in @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })) {
-      if ($servers.Count -eq 0) { Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ResetServerAddresses }
-      else {
-        $use = $servers
-        if (-not $hasV6) { $use = @($servers | Where-Object { $_ -notmatch ':' }) }
-        Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ServerAddresses $use
-      }
+    $ok = 0; $last = $null
+    foreach ($a in Get-ActiveAdapters) {
+      try {
+        if ($servers.Count -eq 0) { Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ResetServerAddresses }
+        else {
+          $use = $servers
+          if (-not $hasV6) { $use = @($servers | Where-Object { $_ -notmatch ':' }) }
+          Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ServerAddresses $use
+        }
+        $ok++
+      } catch { $last = $_.Exception.Message }
     }
+    if ($ok -eq 0) { throw $(if ($last) { "Couldn't change DNS: $last" } else { 'No connected network adapters found.' }) }
     Clear-DnsClientCache
   `);
   return { ok: true };
@@ -81,9 +88,11 @@ async function restoreDns(store) {
     foreach ($a in @(${ps.jsonArg(backup.adapters)})) {
       $live = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceGuid -eq $a.guid }
       if (-not $live) { continue }
-      Set-DnsClientServerAddress -InterfaceIndex $live.ifIndex -ResetServerAddresses
-      $s = @($a.static | Where-Object { $_ })
-      if ($s.Count -gt 0) { Set-DnsClientServerAddress -InterfaceIndex $live.ifIndex -ServerAddresses $s }
+      try {
+        Set-DnsClientServerAddress -InterfaceIndex $live.ifIndex -ResetServerAddresses
+        $s = @($a.static | Where-Object { $_ })
+        if ($s.Count -gt 0) { Set-DnsClientServerAddress -InterfaceIndex $live.ifIndex -ServerAddresses $s }
+      } catch {}
     }
     Clear-DnsClientCache
   `);
@@ -123,15 +132,19 @@ async function dnsSpeedTest() {
 async function pingTest() {
   return ps.runJson(`
     $out = @()
+    $p = New-Object System.Net.NetworkInformation.Ping
     foreach ($h in @('1.1.1.1', '8.8.8.8')) {
-      $r = @(Test-Connection -ComputerName $h -Count 6 -ErrorAction SilentlyContinue)
-      if ($r.Count -eq 0) { $out += @{ host = $h; avg = $null; jitter = $null; loss = 100 }; continue }
-      $t = @($r | ForEach-Object { [double]$_.ResponseTime })
+      $t = @()
+      for ($i = 0; $i -lt 8; $i++) {
+        try { $r = $p.Send($h, 1000); if ($r.Status -eq 'Success') { $t += [double]$r.RoundtripTime } } catch {}
+        Start-Sleep -Milliseconds 120
+      }
+      if ($t.Count -eq 0) { $out += @{ host = $h; avg = $null; jitter = $null; loss = 100 }; continue }
       $avg = ($t | Measure-Object -Average).Average
       $jit = 0
       for ($i = 1; $i -lt $t.Count; $i++) { $jit += [math]::Abs($t[$i] - $t[$i - 1]) }
       if ($t.Count -gt 1) { $jit = $jit / ($t.Count - 1) }
-      $out += @{ host = $h; avg = [math]::Round($avg); jitter = [math]::Round($jit, 1); loss = [math]::Round((6 - $r.Count) / 6 * 100) }
+      $out += @{ host = $h; avg = [math]::Round($avg); jitter = [math]::Round($jit, 1); loss = [math]::Round((8 - $t.Count) / 8 * 100) }
     }
     ,$out
   `, { timeout: 60000 });

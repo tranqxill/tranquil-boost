@@ -75,8 +75,10 @@ async function step(name, fn) {
     console.log(`        ${list.length} startup items`);
     if (list.length) {
       const x = list[0];
+      console.log('       ', JSON.stringify(list.map((y) => ({ id: y.id, on: y.enabled }))));
       await startup.setEnabled(x.id, !x.enabled);
       const again = (await startup.scan()).find((y) => y.id === x.id);
+      if (again.enabled === x.enabled) console.log('        after toggle:', JSON.stringify(again), JSON.stringify(await startup.debugApproved(x.id)));
       assert.strictEqual(again.enabled, !x.enabled);
       await startup.setEnabled(x.id, x.enabled);
     }
