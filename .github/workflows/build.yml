@@ -26,9 +26,27 @@ jobs:
       - name: Apply and undo every tweak on this throwaway machine
         run: npm run selftest
 
+  app-test:
+    name: Open the app and click through it
+    needs: selftest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: app-screenshots
+          path: e2e-shots/*.png
+
   build:
     name: Build installer
-    needs: selftest
+    needs: [selftest, app-test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5

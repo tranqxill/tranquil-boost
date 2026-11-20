@@ -10,11 +10,13 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win --x64 --publish never",
-    "selftest": "node scripts/selftest.js"
+    "selftest": "node scripts/selftest.js",
+    "e2e": "node tests/app.e2e.js"
   },
   "devDependencies": {
     "electron": "^45.4.1",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "playwright-core": "^1.65.1"
   },
   "build": {
     "appId": "com.tranquilinteractive.boost",
