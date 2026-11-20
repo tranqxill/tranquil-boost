@@ -339,7 +339,7 @@ const TWEAKS = [
       }
     `,
     apply: `
-      if ($null -eq $b.usb -and $null -eq $b.pcie) { throw 'This PC\\'s power plan doesn\\'t have these settings.' }
+      if ($null -eq $b.usb -and $null -eq $b.pcie) { throw "This PC's power plan doesn't have these settings." }
       if ($null -ne $b.usb) { powercfg /setacvalueindex $b.scheme 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 | Out-Null }
       if ($null -ne $b.pcie) { powercfg /setacvalueindex $b.scheme 501a4d13-42af-4429-9fd1-a8218c268e20 ee12f906-d277-404b-b6da-e5fa1a576df5 0 | Out-Null }
       powercfg /setactive $b.scheme | Out-Null
