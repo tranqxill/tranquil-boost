@@ -2,6 +2,7 @@
 // Runs PowerShell scripts. Every script we run is built from our own
 // static definitions, never from text the window sends us.
 const { execFile } = require('child_process');
+const zlib = require('zlib');
 
 const PS_EXE = process.env.SystemRoot
   ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
@@ -13,8 +14,14 @@ const PRELUDE = [
   '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
 ].join('\n');
 
+// The script is gzipped and unpacked by a tiny loader, which keeps the
+// command line well under Windows' 32K character limit.
 function encode(script) {
-  return Buffer.from(`${PRELUDE}\n${script}`, 'utf16le').toString('base64');
+  const gz = zlib.gzipSync(Buffer.from(`${PRELUDE}\n${script}`, 'utf8')).toString('base64');
+  const loader = "$__s = (New-Object IO.StreamReader((New-Object IO.Compression.GZipStream((New-Object IO.MemoryStream(,[Convert]::FromBase64String('" + gz + "'))), [IO.Compression.CompressionMode]::Decompress)), [Text.Encoding]::UTF8)).ReadToEnd(); & ([ScriptBlock]::Create($__s))";
+  const encoded = Buffer.from(loader, 'utf16le').toString('base64');
+  if (encoded.length > 32000) throw new Error('Internal error: script too long.');
+  return encoded;
 }
 
 // Pass data into a script without any quoting problems. Arrays come out
